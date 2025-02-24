@@ -1,0 +1,72 @@
+name: Test artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  # A PR number if a pull request and otherwise the commit hash. This cancels
+  # queued and in-progress runs for the same PR (presubmit) or commit
+  # (postsubmit). The workflow name is prepended to avoid conflicts between
+  # different workflows.
+  group: ${{ github.workflow }}-${{ github.event.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: 3.12
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        with:
+          aws-region: us-east-2
+          # role-to-assume: arn:aws:iam::692859939525:role/therock-artifacts
+          role-to-assume: arn:aws:iam::692859939525:role/therock-artifacts-marbre
+
+
+      - name: Create files
+        run: |
+          mkdir artifacts
+          cd artifacts
+          DATE="`date +%Y%m%d-%H%M`"
+          touch "testfile1-${DATE}".txt
+          sha256sum "testfile1-${DATE}".txt > "testfile1-${DATE}".txt.sha256sum
+          touch "testfile2-${DATE}".txt
+          sha256sum "testfile2-${DATE}".txt > "testfile2-${DATE}".txt.sha256sum
+          touch "testfile3-${DATE}".txt
+          sha256sum "testfile3-${DATE}".txt > "testfile3-${DATE}".txt.sha256sum
+          touch "testfile1-${DATE}".foo
+          touch "testfile2-${DATE}".bar
+          touch "testfile3-${DATE}".bla
+
+      - name: Upload file
+        run: |
+          # aws s3api put-object \
+          #   --bucket therock-artifacts \
+          #   --key "${{github.run_id}}/testfile-${DATE}" \
+          #   --body "testfile-${DATE}"
+          aws s3 sync artifacts s3://therock-artifacts/${{github.run_id}}/ \
+            --exclude "*" --include "*.txt" --include "*.txt.sha256sum"
+
+      - name: Generate index
+        run: |
+          curl https://raw.githubusercontent.com/joshbrunty/Indexer/6d8cbfd15d3853b482e6a49f2d875ded9188b721/indexer.py -o indexer.py
+          python indexer.py -f '*.txt*' artifacts/
+          sed -i 's,a href=",a href="https://therock-artifacts.s3.us-east-2.amazonaws.com/${{github.run_id}}/,g' artifacts/index.html
+
+      - name: List content
+        run: ls -laR
+
+      - name: Upload index page
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          path: artifacts/index.html
