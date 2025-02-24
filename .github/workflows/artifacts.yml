@@ -57,16 +57,19 @@ jobs:
           aws s3 sync artifacts s3://therock-artifacts/${{github.run_id}}/ \
             --exclude "*" --include "*.txt" --include "*.txt.sha256sum"
 
-      - name: Generate index
+      - name: Create and upload index
         run: |
           curl https://raw.githubusercontent.com/joshbrunty/Indexer/6d8cbfd15d3853b482e6a49f2d875ded9188b721/indexer.py -o indexer.py
           python indexer.py -f '*.txt*' artifacts/
           sed -i 's,a href=",a href="https://therock-artifacts.s3.us-east-2.amazonaws.com/${{github.run_id}}/,g' artifacts/index.html
+          aws s3 cp artifacts/index.html s3://therock-artifacts/${{github.run_id}}/
 
-      - name: List content
-        run: ls -laR
+      - name: Post URL
+        run: |
+          echo '### Artifacts' >> $GITHUB_STEP_SUMMARY
+          echo '* [Link to artifacts](https://therock-artifacts.s3.us-east-2.amazonaws.com/${{github.run_id}}/).' >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload index page
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
-        with:
-          path: artifacts/index.html
+      # - name: Upload index page
+      #   uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      #   with:
+      #     path: artifacts/index.html
