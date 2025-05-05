@@ -13,11 +13,11 @@ python build_tools/provision_machine.py [--output-dir OUTPUT_DIR] [--amdgpu-fami
 Examples:
 - Downloads the gfx94X S3 artifacts from GitHub CI workflow run 14474448215 (from https://github.com/ROCm/TheRock/actions/runs/14474448215) to the default output directory `therock-build`:
     - `python build_tools/provision_machine.py --run-id 14474448215 --amdgpu-family gfx94X-dcgpu`
-- Downloads the latest gfx110X artifacts from GitHub release tag `nightly-release` to the specified output directory `build`:
+- Downloads the latest gfx110X artifacts from GitHub release tag `nightly-tarball` to the specified output directory `build`:
     - `python build_tools/provision_machine.py --release latest --amdgpu-family gfx110X-dgpu --output-dir build`
-- Downloads the version `6.4.0rc20250416` gfx110X artifacts from GitHub release tag `nightly-release` to the specified output directory `build`:
+- Downloads the version `6.4.0rc20250416` gfx110X artifacts from GitHub release tag `nightly-tarball` to the specified output directory `build`:
     - `python build_tools/provision_machine.py --release 6.4.0rc20250416 --amdgpu-family gfx110X-dgpu --output-dir build`
-- Downloads the version `6.4.0.dev0+8f6cdfc0d95845f4ca5a46de59d58894972a29a9` gfx120X artifacts from GitHub release tag `dev-release` to the default output directory `therock-build`:
+- Downloads the version `6.4.0.dev0+8f6cdfc0d95845f4ca5a46de59d58894972a29a9` gfx120X artifacts from GitHub release tag `dev-tarball` to the default output directory `therock-build`:
     - `python build_tools/provision_machine.py --release 6.4.0.dev0+8f6cdfc0d95845f4ca5a46de59d58894972a29a9 --amdgpu-family gfx120X-all`
 
 You can select your AMD GPU family from this file https://github.com/ROCm/TheRock/blob/59c324a759e8ccdfe5a56e0ebe72a13ffbc04c1f/cmake/therock_amdgpu_targets.cmake#L44-L81
@@ -112,23 +112,23 @@ def _get_github_release_assets(release_tag, amdgpu_family, release_version):
     release_data = response.json()
 
     # We retrieve the most recent release asset that matches the amdgpu_family
-    # In the cases of "nightly-release" or "dev-release", this will retrieve the the specified version or latest
+    # In the cases of "nightly-tarball" or "dev-tarball", this will retrieve the the specified version or latest
     asset_data = sorted(
         release_data["assets"], key=lambda item: item["updated_at"], reverse=True
     )
 
-    # For nightly-release
-    if release_tag == "nightly-release" and release_version != "latest":
+    # For nightly-tarball
+    if release_tag == "nightly-tarball" and release_version != "latest":
         for asset in asset_data:
             if amdgpu_family in asset["name"] and release_version in asset["name"]:
                 return asset
-    # For dev-release
-    elif release_tag == "dev-release":
+    # For dev-tarball
+    elif release_tag == "dev-tarball":
         for asset in asset_data:
             if amdgpu_family in asset["name"] and release_version in asset["name"]:
                 return asset
-    # Otherwise, return the latest and amdgpu-matched asset available from the tag nightly-release
-    elif release_tag == "nightly-release" and release_version == "latest":
+    # Otherwise, return the latest and amdgpu-matched asset available from the tag nightly-tarball
+    elif release_tag == "nightly-tarball" and release_version == "latest":
         for asset in asset_data:
             if amdgpu_family in asset["name"]:
                 return asset
@@ -199,33 +199,33 @@ def retrieve_artifacts_by_release(args):
     """
     output_dir = args.output_dir
     amdgpu_family = args.amdgpu_family
-    # In the case that the user passes in latest, we will get the latest nightly-release
+    # In the case that the user passes in latest, we will get the latest nightly-tarball
     if args.release == "latest":
-        release_tag = "nightly-release"
-    # Otherwise, determine if version is nightly-release or dev-release
+        release_tag = "nightly-tarball"
+    # Otherwise, determine if version is nightly-tarball or dev-tarball
     else:
         try:
             version = Version(args.release)
             if not version.is_devrelease and not version.is_prerelease:
-                log(f"This script requires a nightly-release or dev-release version.")
+                log(f"This script requires a nightly-tarball or dev-tarball version.")
                 log("Please retrieve the correct release version from:")
                 log(
-                    "\t - https://github.com/ROCm/TheRock/releases/tag/nightly-release (nightly-release example: 6.4.0rc20250416)"
+                    "\t - https://github.com/ROCm/TheRock/releases/tag/nightly-tarball (nightly-tarball example: 6.4.0rc20250416)"
                 )
                 log(
-                    "\t - https://github.com/ROCm/TheRock/releases/tag/dev-release (dev-release example: 6.4.0.dev0+8f6cdfc0d95845f4ca5a46de59d58894972a29a9)"
+                    "\t - https://github.com/ROCm/TheRock/releases/tag/dev-tarball (dev-tarball example: 6.4.0.dev0+8f6cdfc0d95845f4ca5a46de59d58894972a29a9)"
                 )
                 log("Exiting...")
                 return
-            release_tag = "dev-release" if version.is_devrelease else "nightly-release"
+            release_tag = "dev-tarball" if version.is_devrelease else "nightly-tarball"
         except InvalidVersion:
             log(f"Invalid release version '{args.release}'")
             log("Please retrieve the correct release version from:")
             log(
-                "\t - https://github.com/ROCm/TheRock/releases/tag/nightly-release (nightly-release example: 6.4.0rc20250416)"
+                "\t - https://github.com/ROCm/TheRock/releases/tag/nightly-tarball (nightly-tarball example: 6.4.0rc20250416)"
             )
             log(
-                "\t - https://github.com/ROCm/TheRock/releases/tag/dev-release (dev-release example: 6.4.0.dev0+8f6cdfc0d95845f4ca5a46de59d58894972a29a9)"
+                "\t - https://github.com/ROCm/TheRock/releases/tag/dev-tarball (dev-tarball example: 6.4.0.dev0+8f6cdfc0d95845f4ca5a46de59d58894972a29a9)"
             )
             log("Exiting...")
             return
@@ -304,7 +304,7 @@ def main(argv):
     group.add_argument(
         "--release",
         type=str,
-        help="Github release version of TheRock to provision, from the nightly-release (X.Y.ZrcYYYYMMDD) or dev-release (X.Y.Z.dev0+{hash})",
+        help="Github release version of TheRock to provision, from the nightly-tarball (X.Y.ZrcYYYYMMDD) or dev-tarball (X.Y.Z.dev0+{hash})",
     )
 
     group.add_argument(
