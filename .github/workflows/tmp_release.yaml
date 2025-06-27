@@ -112,6 +112,9 @@ jobs:
   pytorch_linux_packages:
     if: ${{ inputs.release_type == 'nightly' || inputs.release_type == '' }}
     needs: [setup_metadata, portable_linux_packages]
+    permissions:
+      contents: read
+      id-token: write # Added permission for AWS S3 upload
     strategy:
       fail-fast: false
       matrix:
