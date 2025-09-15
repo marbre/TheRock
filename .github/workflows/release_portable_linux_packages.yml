@@ -18,6 +18,8 @@ on:
         description: "Staging subdirectory to push the packages"
         type: string
         default: "v2-staging"
+      repository:
+        type: string
   # Trigger manually (typically to test the workflow or manually build a release [candidate])
   workflow_dispatch:
     inputs:
@@ -38,10 +40,6 @@ on:
       families:
         description: "Comma separated list of AMD GPU families, e.g. `gfx94X,gfx103x`"
         type: string
-  # Trigger on a schedule to build nightly release candidates.
-  schedule:
-    # Runs at 04:00 AM UTC, which is 8:00 PM PST (UTC-8)
-    - cron: '0 04 * * *'
 
 permissions:
   contents: read
@@ -54,6 +52,7 @@ jobs:
       S3_SUBDIR: ${{ inputs.s3_subdir || 'v2' }}
       S3_STAGING_SUBDIR: ${{ inputs.s3_staging_subdir || 'v2-staging' }}
       release_type: ${{ inputs.release_type || 'nightly' }}
+      repository: ${{ inputs.repository || github.repository }}
     outputs:
       version: ${{ steps.release_information.outputs.version }}
       release_type: ${{ env.release_type }}
@@ -63,6 +62,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          repository: ${{ env.repository }}
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -121,10 +122,13 @@ jobs:
       S3_BUCKET_PY: "therock-${{ needs.setup_metadata.outputs.release_type }}-python"
       S3_SUBDIR: ${{ inputs.s3_subdir || 'v2' }}
       S3_STAGING_SUBDIR: ${{ inputs.s3_staging_subdir || 'v2-staging' }}
+      repository: ${{ inputs.repository || github.repository }}
 
     steps:
       - name: "Checking out repository"
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          repository: ${{ env.repository }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.10'
@@ -226,6 +230,7 @@ jobs:
         uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1.2.4
         with:
           workflow: test_release_packages.yml
+          repo: ${{ env.repository }}
           inputs: |
             { "version": "${{ needs.setup_metadata.outputs.version }}",
               "tag": "nightly-tarball",
@@ -238,6 +243,7 @@ jobs:
         uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1.2.4
         with:
           workflow: release_portable_linux_pytorch_wheels.yml
+          repo: ${{ env.repository }}
           inputs: |
             { "amdgpu_family": "${{ matrix.target_bundle.amdgpu_family }}",
               "release_type": "${{ env.RELEASE_TYPE }}",
