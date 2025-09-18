@@ -230,7 +230,6 @@ jobs:
       #   uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1.2.4
       #   with:
       #     workflow: test_release_packages.yml
-      #     repo: ${{ env.repository }}
       #     inputs: |
       #       { "version": "${{ needs.setup_metadata.outputs.version }}",
       #         "tag": "nightly-tarball",
@@ -243,7 +242,6 @@ jobs:
         uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1.2.4
         with:
           workflow: release_portable_linux_pytorch_wheels.yml
-          repo: ${{ env.repository }}
           inputs: |
             { "amdgpu_family": "${{ matrix.target_bundle.amdgpu_family }}",
               "release_type": "${{ env.RELEASE_TYPE }}",
