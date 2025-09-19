@@ -120,6 +120,8 @@ jobs:
       - name: Build
         run: |
           echo "Build wheels!"
+          echo "inputs.repository: ${{ inputs.repository }}"
+          echo "github.repository: ${{ github.repository }}"
           git rev-parse HEAD
 
   #     - name: Configure Git Identity

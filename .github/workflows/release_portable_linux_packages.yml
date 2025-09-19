@@ -240,6 +240,8 @@ jobs:
       - name: Build
         run: |
           echo "Build packages!"
+          echo "inputs.repository: ${{ inputs.repository }}"
+          echo "github.repository: ${{ github.repository }}"
           git rev-parse HEAD
 
       - name: Trigger building PyTorch wheels
