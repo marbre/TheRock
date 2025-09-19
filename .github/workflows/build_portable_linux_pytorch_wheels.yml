@@ -42,6 +42,9 @@ on:
         type: string
       repository:
         type: string
+      ref:
+        description: "Branch, tag or SHA to checkout. Otherwise, uses the default branch."
+        type: string
   workflow_dispatch:
     inputs:
       amdgpu_family:
@@ -117,12 +120,15 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref || '' }}
       - name: Build
         run: |
           echo "Build wheels!"
           echo "inputs.repository: ${{ inputs.repository }}"
           echo "github.repository: ${{ github.repository }}"
+          echo "inputs.ref: ${{ inputs.ref || '' }}"
           git rev-parse HEAD
+          git rev-parse --abbrev-ref HEAD
 
   #     - name: Configure Git Identity
   #       run: |
@@ -220,6 +226,7 @@ jobs:
   #       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
   #       with:
   #         repository: ${{ inputs.repository || github.repository }}
+  #         ref: ${{ inputs.ref || '' }}
   #     - name: Generating target to run
   #       id: configure
   #       env:
@@ -258,6 +265,7 @@ jobs:
   #       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
   #       with:
   #         repository: ${{ inputs.repository || github.repository }}
+  #         ref: ${{ inputs.ref || '' }}
 
   #     - name: Configure AWS Credentials
   #       if: always()
