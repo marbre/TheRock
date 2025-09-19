@@ -40,6 +40,8 @@ on:
         description: Patch directory name from where to apply existing patches.
         required: true
         type: string
+      repository:
+        type: string
   workflow_dispatch:
     inputs:
       amdgpu_family:
@@ -113,9 +115,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
+        with:
+          repository: ${{ inputs.repository || github.repository }}
       - name: Build
-        run: echo "Build wheels!"
+        run: |
+          echo "Build wheels!"
+          git rev-parse HEAD
 
   #     - name: Configure Git Identity
   #       run: |
@@ -211,7 +216,8 @@ jobs:
   #   steps:
   #     - name: Checking out repository
   #       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
+  #       with:
+  #         repository: ${{ inputs.repository || github.repository }}
   #     - name: Generating target to run
   #       id: configure
   #       env:
@@ -248,6 +254,8 @@ jobs:
   #   steps:
   #     - name: Checkout
   #       uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+  #       with:
+  #         repository: ${{ inputs.repository || github.repository }}
 
   #     - name: Configure AWS Credentials
   #       if: always()

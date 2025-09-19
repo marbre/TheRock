@@ -237,6 +237,11 @@ jobs:
       #         "target": "${{ matrix.target_bundle.amdgpu_family }}"
       #       }
 
+      - name: Build
+        run: |
+          echo "Build packages!"
+          git rev-parse HEAD
+
       - name: Trigger building PyTorch wheels
       #  if: ${{ github.repository_owner == 'ROCm' }}
         uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1.2.4
