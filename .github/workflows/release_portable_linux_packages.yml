@@ -302,7 +302,7 @@ jobs:
         # TODO: Enable JAX wheels for prereleases
         if: ${{ env.RELEASE_TYPE != 'prerelease' }}
         id: url-encode-tar
-        run: python -c "from urllib.parse import quote; print('tar_url=${{ needs.setup_metadata.outputs.cloudfront_base_url }}/' + quote('${{ env.FILE_NAME }}'))" >> ${GITHUB_OUTPUT}
+        run: python -c "from urllib.parse import quote; print('tar_url=${{ needs.setup_metadata.outputs.cloudfront_base_url }}/tarball/' + quote('${{ env.FILE_NAME }}'))" >> ${GITHUB_OUTPUT}
 
       - name: Trigger build JAX wheels
         # TODO: Enable JAX wheels for prereleases
