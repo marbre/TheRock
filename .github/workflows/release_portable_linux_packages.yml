@@ -121,7 +121,8 @@ jobs:
           echo "cloudfront_url=${tmp_cloudfront_url}" >> $GITHUB_OUTPUT
           echo "cloudfront_staging_url=${tmp_cloudfront_staging_url}" >> $GITHUB_OUTPUT
           echo "s3_subdir_tar=${tmp_s3_subdir_tar}" >> $GITHUB_OUTPUT
-          # TODO: Refactor to use a single CloudFront URL bucket paths (v2 vs. whl) are harmonized
+          # TODO: Refactor to use the base URL as CloudFront URL once bucket paths (v2 vs. whl) are harmonized.
+          # Uses bash parameter expansion to strip off subdirectories.
           echo "cloudfront_base_url=${tmp_cloudfront_url%/*}" >> $GITHUB_OUTPUT
 
       - name: Generating package target matrix
