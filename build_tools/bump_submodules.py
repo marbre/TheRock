@@ -14,7 +14,7 @@ Bump submpdules in base, core and profiler
     --components base core profiler
 ```
 
-Bump rcom-systems submodule and create a branch
+Bump rocm-systems submodule and create a branch
 ```
 ./build_tools/bump_submodules.py \
     --create-branch --branch-name shared/bump-rocm-systems --components rocm-systems
