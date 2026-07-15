@@ -70,7 +70,13 @@ from pathlib import Path
 _BUILD_TOOLS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BUILD_TOOLS_DIR))
 
-from _therock_utils.s3_buckets import get_release_bucket_config
+from _therock_utils.python_indexes import (
+    PythonIndexOwner,
+    build_product_index_copies,
+    python_index_public_base,
+    write_python_index_manifest,
+)
+from _therock_utils.s3_buckets import get_release_bucket_config, get_repo_bucket_config
 from _therock_utils.storage_backend import StorageBackend, create_storage_backend
 from _therock_utils.storage_location import StorageLocation
 from _therock_utils.workflow_outputs import WorkflowOutputRoot
@@ -114,6 +120,9 @@ def publish_python_packages(
     release_type: str,
     backend: StorageBackend,
     kpack_split: bool,
+    python_publish_target: str = "legacy",
+    python_index: str = "whl",
+    python_index_manifest_output: Path | None = None,
 ) -> None:
     """Copy python packages from the artifacts bucket to the release python bucket.
 
@@ -136,21 +145,57 @@ def publish_python_packages(
           -> s3://therock-dev-python/v4/whl/*.whl
     """
     source = artifacts_root.python_packages()
-    dest_bucket = get_release_bucket_config(release_type, "python")
-    if kpack_split:
-        # Multi-arch: publish directly (no staging index).
-        s3_subdirs = ["v4/whl"]
-    else:
-        # Per-family: publish to both staging and release.
-        s3_subdirs = ["v3/whl-staging", "v3/whl"]
 
-    for s3_subdir in s3_subdirs:
-        dest = StorageLocation(dest_bucket.name, s3_subdir)
-        logger.info("Python packages: %s -> %s", source.s3_uri, dest.s3_uri)
-        count = backend.copy_directory(source, dest, include=["*.whl", "*.tar.gz"])
-        logger.info("Copied %d python package files to %s", count, s3_subdir)
-        if count == 0:
-            raise FileNotFoundError(f"No python packages found at {source.s3_uri}")
+    if python_publish_target == "legacy":
+        dest_bucket = get_release_bucket_config(release_type, "python")
+        if kpack_split:
+            # Multi-arch: publish directly (no staging index).
+            s3_subdirs = ["v4/whl"]
+        else:
+            # Per-family: publish to both staging and release.
+            s3_subdirs = ["v3/whl-staging", "v3/whl"]
+
+        for s3_subdir in s3_subdirs:
+            dest = StorageLocation(dest_bucket.name, s3_subdir)
+            logger.info("Python packages: %s -> %s", source.s3_uri, dest.s3_uri)
+            count = backend.copy_directory(source, dest, include=["*.whl", "*.tar.gz"])
+            logger.info("Copied %d python package files to %s", count, s3_subdir)
+            if count == 0:
+                raise FileNotFoundError(f"No python packages found at {source.s3_uri}")
+        return
+
+    if not kpack_split:
+        raise ValueError("RFC0012 Python index publication requires --kpack-split=true")
+
+    repo_bucket = get_repo_bucket_config(release_type)
+    source_files = backend.list_files(source, include=["*.whl", "*.tar.gz"])
+    copies, packages = build_product_index_copies(
+        source_files=source_files,
+        dest_bucket=repo_bucket.name,
+        product="core",
+        index_name=python_index,
+    )
+    if not copies:
+        raise FileNotFoundError(f"No python packages found at {source.s3_uri}")
+
+    logger.info(
+        "ROCm core Python packages: %s -> s3://%s/rocm/core/%s/",
+        source.s3_uri,
+        repo_bucket.name,
+        python_index,
+    )
+    count = backend.copy_files(copies)
+    logger.info("Copied %d ROCm core python package files", count)
+    if count == 0:
+        raise FileNotFoundError(f"No python packages found at {source.s3_uri}")
+
+    owner = PythonIndexOwner(
+        public_base=python_index_public_base(python_index),
+        owner_path=f"core/{python_index}",
+        packages=packages,
+    )
+    if python_index_manifest_output:
+        write_python_index_manifest(python_index_manifest_output, [owner])
 
 
 def publish_native_linux_packages(
@@ -249,6 +294,37 @@ def main(argv: list[str]) -> None:
         help="Skip publishing native Linux packages (deb/rpm)",
     )
     parser.add_argument(
+        "--skip-python-packages",
+        action="store_true",
+        help="Skip publishing Python packages",
+    )
+    parser.add_argument(
+        "--skip-tarballs",
+        action="store_true",
+        help="Skip publishing ROCm tarballs",
+    )
+    parser.add_argument(
+        "--python-publish-target",
+        choices=["legacy", "rfc0012"],
+        default="legacy",
+        help=(
+            "Destination for Python packages. 'legacy' keeps the existing "
+            "therock-{release_type}-python layout. 'rfc0012' publishes the "
+            "RFC0012 stream-subdomain product-local layout."
+        ),
+    )
+    parser.add_argument(
+        "--python-index",
+        choices=["whl", "whl-next"],
+        default="whl",
+        help="Stream-subdomain Python index name when --python-publish-target=rfc0012.",
+    )
+    parser.add_argument(
+        "--python-index-manifest-output",
+        type=Path,
+        help="Optional path to write a concrete Python index ownership manifest.",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Print plan without copying"
     )
     parser.add_argument(
@@ -267,11 +343,21 @@ def main(argv: list[str]) -> None:
     kpack_split = args.kpack_split.lower() == "true"
     is_asan = args.build_variant == "asan"
 
-    publish_tarballs(artifacts_root, args.release_type, backend, args.build_variant)
-    if not is_asan:
-        publish_python_packages(artifacts_root, args.release_type, backend, kpack_split)
-    else:
-        logger.info("Skipping python packages for ASAN build variant")
+    if not args.skip_tarballs:
+        publish_tarballs(artifacts_root, args.release_type, backend, args.build_variant)
+    if not args.skip_python_packages:
+        if is_asan:
+            logger.info("Skipping python packages for ASAN build variant")
+        else:
+            publish_python_packages(
+                artifacts_root,
+                args.release_type,
+                backend,
+                kpack_split,
+                python_publish_target=args.python_publish_target,
+                python_index=args.python_index,
+                python_index_manifest_output=args.python_index_manifest_output,
+            )
     if artifacts_root.platform == "linux" and not args.skip_native_packages:
         publish_native_linux_packages(
             artifacts_root, args.release_type, backend, args.build_variant

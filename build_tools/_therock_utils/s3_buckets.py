@@ -69,6 +69,10 @@ s3_bucket_configs = [
     S3BucketConfig("therock-release-packages", iam_role=None),
     S3BucketConfig("therock-release-python", iam_role=None),
     S3BucketConfig("therock-release-tarball", iam_role=None),
+    # Stream-subdomain repo buckets.
+    S3BucketConfig("therock-repo-amd-dev", iam_role="therock-repo-dev"),
+    S3BucketConfig("therock-repo-amd-nightly", iam_role="therock-repo-nightly"),
+    S3BucketConfig("therock-repo-amd-rc", iam_role="therock-repo-rc"),
 ]
 
 
@@ -79,6 +83,12 @@ _ALLOWED_ARTIFACT_RELEASE_TYPES = {"ci", "dev", "nightly", "prerelease"}
 _ALLOWED_RELEASE_TYPES = {"dev", "nightly", "prerelease"}
 
 _ALLOWED_RELEASE_BUCKET_TYPES = {"tarball", "python", "packages"}
+
+_REPO_BUCKET_BY_RELEASE_TYPE = {
+    "dev": "therock-repo-amd-dev",
+    "nightly": "therock-repo-amd-nightly",
+    "prerelease": "therock-repo-amd-rc",
+}
 
 
 def get_artifacts_bucket_config(
@@ -139,6 +149,28 @@ def get_release_bucket_config(
             f"expected one of {_ALLOWED_RELEASE_BUCKET_TYPES}"
         )
     bucket_name = f"therock-{release_type}-{bucket_type}"
+    return _BUCKET_CONFIGS_BY_NAME[bucket_name]
+
+
+def get_repo_bucket_config(release_type: str) -> S3BucketConfig:
+    """Look up the stream-subdomain repository bucket for a release type.
+
+    Args:
+        release_type: "dev", "nightly", or "prerelease". The prerelease
+            stream publishes to the rc repo bucket.
+
+    Returns:
+        S3BucketConfig for the matching ``therock-repo-amd-*`` bucket.
+
+    Raises:
+        ValueError: If release_type is invalid for repo publication.
+    """
+    bucket_name = _REPO_BUCKET_BY_RELEASE_TYPE.get(release_type)
+    if bucket_name is None:
+        allowed = ", ".join(sorted(_REPO_BUCKET_BY_RELEASE_TYPE))
+        raise ValueError(
+            f"release_type={release_type!r} is invalid, expected one of {allowed}"
+        )
     return _BUCKET_CONFIGS_BY_NAME[bucket_name]
 
 

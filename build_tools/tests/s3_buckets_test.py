@@ -14,6 +14,7 @@ sys.path.insert(0, os.fspath(Path(__file__).parent.parent))
 from _therock_utils.s3_buckets import (
     get_artifacts_bucket_config,
     get_artifacts_bucket_config_for_workflow_run,
+    get_repo_bucket_config,
     get_release_bucket_config,
 )
 
@@ -131,6 +132,36 @@ class TestGetReleaseBucketConfig(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             get_release_bucket_config(release_type="dev", bucket_type="wheels")
         self.assertIn("wheels", str(cm.exception))
+
+
+# ---------------------------------------------------------------------------
+# get_repo_bucket_config
+# ---------------------------------------------------------------------------
+
+
+class TestGetRepoBucketConfig(unittest.TestCase):
+    def test_dev_repo_bucket(self):
+        config = get_repo_bucket_config(release_type="dev")
+        self.assertEqual(config.name, "therock-repo-amd-dev")
+        self.assertEqual(config.iam_role, "therock-repo-dev")
+        self.assertEqual(
+            config.write_access_iam_role,
+            "arn:aws:iam::692859939525:role/therock-repo-dev",
+        )
+
+    def test_nightly_repo_bucket(self):
+        config = get_repo_bucket_config(release_type="nightly")
+        self.assertEqual(config.name, "therock-repo-amd-nightly")
+        self.assertEqual(config.iam_role, "therock-repo-nightly")
+
+    def test_prerelease_maps_to_rc_repo_bucket(self):
+        config = get_repo_bucket_config(release_type="prerelease")
+        self.assertEqual(config.name, "therock-repo-amd-rc")
+        self.assertEqual(config.iam_role, "therock-repo-rc")
+
+    def test_invalid_repo_release_type_raises(self):
+        with self.assertRaises(ValueError):
+            get_repo_bucket_config(release_type="ci")
 
 
 # ---------------------------------------------------------------------------

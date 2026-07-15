@@ -14,6 +14,20 @@ inputs:
   release_type:
     description: 'Release type: "ci", "dev", "nightly", or "prerelease"'
     default: ci
+  bucket_scope:
+    description: 'Bucket family to authenticate for: "artifacts" or "rfc0012"'
+    default: artifacts
+
+outputs:
+  bucket:
+    description: "Selected S3 bucket name"
+    value: ${{ steps.iam.outputs.bucket }}
+  iam_role:
+    description: "IAM role ARN used for bucket write access"
+    value: ${{ steps.iam.outputs.iam_role }}
+  aws_region:
+    description: "AWS region for the selected bucket"
+    value: ${{ steps.iam.outputs.aws_region }}
 
 runs:
   using: "composite"
@@ -24,7 +38,8 @@ runs:
       shell: bash
       run: |
         python build_tools/github_actions/write_artifacts_bucket_info.py \
-          --release-type "${{ inputs.release_type }}"
+          --release-type "${{ inputs.release_type }}" \
+          --bucket-scope "${{ inputs.bucket_scope }}"
 
     - name: Configure AWS Credentials
       if: ${{ always() && steps.iam.outputs.iam_role != '' }}

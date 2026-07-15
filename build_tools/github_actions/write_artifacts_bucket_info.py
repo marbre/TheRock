@@ -14,7 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from _therock_utils.s3_buckets import get_artifacts_bucket_config_for_workflow_run
+from _therock_utils.s3_buckets import (
+    get_artifacts_bucket_config_for_workflow_run,
+    get_repo_bucket_config,
+)
 from github_actions_api import gha_set_output
 
 
@@ -28,13 +31,26 @@ def main(argv: list[str] | None = None):
         default="ci",
         help='Release type: "ci", "dev", "nightly", or "prerelease".',
     )
+    parser.add_argument(
+        "--bucket-scope",
+        choices=["artifacts", "rfc0012"],
+        default="artifacts",
+        help=(
+            "Bucket family to authenticate for. 'artifacts' preserves the "
+            "existing release/artifact role behavior. 'rfc0012' selects the "
+            "stream-subdomain repo bucket role."
+        ),
+    )
     args = parser.parse_args(argv)
 
     repository = os.environ.get("GITHUB_REPOSITORY", "ROCm/TheRock")
-    config = get_artifacts_bucket_config_for_workflow_run(
-        github_repository=repository,
-        release_type=args.release_type,
-    )
+    if args.bucket_scope == "rfc0012":
+        config = get_repo_bucket_config(args.release_type)
+    else:
+        config = get_artifacts_bucket_config_for_workflow_run(
+            github_repository=repository,
+            release_type=args.release_type,
+        )
 
     gha_set_output(
         {

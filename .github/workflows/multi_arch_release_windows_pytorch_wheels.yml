@@ -52,6 +52,10 @@ on:
         description: "Single Python version to build (empty for full matrix)"
         type: string
         default: ""
+      python_index:
+        description: 'RFC0012 Python index to publish: "whl" or "whl-next".'
+        type: string
+        default: whl
   workflow_dispatch:
     inputs:
       amdgpu_families:
@@ -99,6 +103,13 @@ on:
         description: "Single Python version to build (empty for full matrix)"
         type: string
         default: ""
+      python_index:
+        description: 'RFC0012 Python index to publish: "whl" or "whl-next".'
+        type: choice
+        options:
+          - whl
+          - whl-next
+        default: whl
 
 run-name: Release Windows PyTorch Wheels (${{ inputs.release_type }}, ${{ inputs.rocm_version }}, ${{ inputs.amdgpu_families }})
 
@@ -149,3 +160,4 @@ jobs:
       repository: ${{ inputs.repository || github.repository }}
       ref: ${{ inputs.ref }}
       cache_type: ${{ inputs.cache_type }}
+      python_index: ${{ inputs.python_index }}

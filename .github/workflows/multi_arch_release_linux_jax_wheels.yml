@@ -43,6 +43,10 @@ on:
         description: "Single Python version to build (empty for full matrix)"
         type: string
         default: ""
+      python_index:
+        description: 'RFC0012 Python index to publish: "whl" or "whl-next".'
+        type: string
+        default: whl
   workflow_dispatch:
     inputs:
       test_amdgpu_family:
@@ -79,6 +83,13 @@ on:
         description: "Single Python version to build (empty for full matrix)"
         type: string
         default: ""
+      python_index:
+        description: 'RFC0012 Python index to publish: "whl" or "whl-next".'
+        type: choice
+        options:
+          - whl
+          - whl-next
+        default: whl
 
 run-name: Release Linux JAX Wheels (${{ inputs.release_type }}, ${{ inputs.rocm_version }}, Multiarch)
 
@@ -127,3 +138,4 @@ jobs:
       release_type: ${{ inputs.release_type }}
       repository: ${{ inputs.repository || github.repository }}
       ref: ${{ inputs.ref }}
+      python_index: ${{ inputs.python_index }}

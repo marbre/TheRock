@@ -56,6 +56,10 @@ on:
         description: Run full PyTorch tests after scheduled nightly wheel builds complete.
         type: boolean
         default: false
+      python_index:
+        description: 'RFC0012 Python index to publish: "whl" or "whl-next".'
+        type: string
+        default: whl
   workflow_dispatch:
     inputs:
       amdgpu_families:
@@ -107,6 +111,13 @@ on:
         description: Run full PyTorch tests after scheduled nightly wheel builds complete.
         type: boolean
         default: false
+      python_index:
+        description: 'RFC0012 Python index to publish: "whl" or "whl-next".'
+        type: choice
+        options:
+          - whl
+          - whl-next
+        default: whl
 
 run-name: Release Linux PyTorch Wheels (${{ inputs.release_type }}, ${{ inputs.rocm_version }}, ${{ inputs.amdgpu_families }})
 
@@ -161,6 +172,7 @@ jobs:
       repository: ${{ inputs.repository || github.repository }}
       ref: ${{ inputs.ref }}
       cache_type: ${{ inputs.cache_type }}
+      python_index: ${{ inputs.python_index }}
       # The reusable build workflow dispatches the full PyTorch test suite for
       # each successfully built (nightly, gfx94X-dcgpu, py3.12) ref using that
       # build's own torch_version output (#5777).
