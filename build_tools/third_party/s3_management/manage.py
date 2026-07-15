@@ -21,20 +21,27 @@ import base64
 import concurrent.futures
 import dataclasses
 import functools
+import re
 import time
 
 from os import path, makedirs, getenv
 from collections import defaultdict
 from typing import Iterable, List, Type, Dict, Set, TypeVar, Optional
 from re import sub, match
+from packaging.utils import (
+    InvalidSdistFilename,
+    InvalidWheelFilename,
+    parse_sdist_filename,
+    parse_wheel_filename,
+)
 from packaging.version import parse as _parse_version, Version, InvalidVersion
 
 import boto3
 import botocore
 
 
-S3 = boto3.resource('s3')
-CLIENT = boto3.client('s3')
+S3 = boto3.resource("s3")
+CLIENT = boto3.client("s3")
 
 # Bucket configuration is resolved via initialize_bucket().
 # Must be provided via --bucket (CLI) or S3_BUCKET_PY (env).
@@ -43,6 +50,7 @@ CLIENT = boto3.client('s3')
 BUCKET_NAME: str | None = None
 BUCKET = None
 INDEX_BUCKETS: Set = set()
+
 
 def initialize_bucket(bucket_name: str | None) -> None:
     """
@@ -64,7 +72,38 @@ def initialize_bucket(bucket_name: str | None) -> None:
     BUCKET = S3.Bucket(BUCKET_NAME)
     INDEX_BUCKETS = {BUCKET}
 
+
 ACCEPTED_FILE_EXTENSIONS = ("whl", "zip", "tar.gz")
+_PEP503_NORMALIZE_RE = re.compile(r"[-_.]+")
+
+
+def pep503_normalize_package_name(name: str) -> str:
+    """Return a PEP 503 normalized package name."""
+    return _PEP503_NORMALIZE_RE.sub("-", name).lower()
+
+
+def package_name_from_distribution_filename(filename: str) -> str:
+    """Extract the normalized package name from a wheel or sdist filename."""
+    basename = path.basename(filename).replace("%2B", "+")
+    if basename.endswith(".whl"):
+        try:
+            package_name, _version, _build, _tags = parse_wheel_filename(basename)
+        except InvalidWheelFilename as exc:
+            raise ValueError(f"invalid wheel filename: {filename}") from exc
+        return pep503_normalize_package_name(str(package_name))
+
+    if basename.endswith((".tar.gz", ".zip")):
+        try:
+            package_name, _version = parse_sdist_filename(basename)
+        except InvalidSdistFilename as exc:
+            raise ValueError(f"invalid sdist filename: {filename}") from exc
+        return pep503_normalize_package_name(str(package_name))
+
+    raise ValueError(f"unsupported Python distribution file: {filename}")
+
+
+def is_accepted_distribution_key(key: str) -> bool:
+    return key.endswith(ACCEPTED_FILE_EXTENSIONS)
 
 
 def _make_list_prefix(prefix: str, package_name: Optional[str]) -> str:
@@ -107,7 +146,7 @@ PREFIXES = [
     "v2/gfx950-dcgpu",
 ]
 
-CUSTOM_PREFIX = getenv('CUSTOM_PREFIX')
+CUSTOM_PREFIX = getenv("CUSTOM_PREFIX")
 if CUSTOM_PREFIX:
     PREFIXES.append(CUSTOM_PREFIX)
 
@@ -115,98 +154,101 @@ if CUSTOM_PREFIX:
 # package as specified by setuptools, for packages with "-" (hyphens) in their
 # names you need to convert them to "_" (underscores) in order for them to be
 # allowed here since the name of the wheels is compared here
-PACKAGE_ALLOW_LIST = {x.lower() for x in [
-    # ---- ROCm ----
-    "rocm",
-    "rocm_bootstrap",
-    "rocm_sdk",
-    "rocm_sdk_core",
-    "rocm_sdk_devel",
-    "rocm_profiler",
-    "rocm_sdk_libraries",
-    # ---- triton ----
-    "triton",
-    "pytorch_triton_rocm",
-    # ---- triton additional packages ----
-    "Arpeggio",
-    "caliper_reader",
-    "contourpy",
-    "cycler",
-    "dill",
-    "fonttools",
-    "kiwisolver",
-    "llnl-hatchet",
-    "matplotlib",
-    "pandas",
-    "pydot",
-    "pyparsing",
-    "pytz",
-    "textx",
-    "tzdata",
-    "importlib_metadata",
-    "importlib_resources",
-    "zipp",
-    # ----
-    "Pillow",
-    "apex",
-    "certifi",
-    "charset_normalizer",
-    "cmake",
-    "colorama",
-    "fbgemm_gpu",
-    "fbgemm_gpu_genai",
-    "filelock",
-    "fsspec",
-    "idna",
-    "iopath",
-    "intel_openmp",
-    "Jinja2",
-    "lit",
-    "lightning_utilities",
-    "MarkupSafe",
-    "mpmath",
-    "mkl",
-    "mypy_extensions",
-    "nestedtensor",
-    "networkx",
-    "numpy",
-    "packaging",
-    "portalocker",
-    "pyre_extensions",
-    "requests",
-    "sympy",
-    "tbb",
-    "torch",
-    "torcharrow",
-    "torchaudio",
-    "torchcodec",
-    "torchcsprng",
-    "torchdata",
-    "torchdistx",
-    "torchmetrics",
-    "torchrec",
-    "torchtext",
-    "torchtune",
-    "torchvision",
-    "torchvision_extra_decoders",
-    "triton",
-    "tqdm",
-    "typing_extensions",
-    "typing_inspect",
-    "urllib3",
-    "xformers",
-    "executorch",
-    "setuptools",
-    "setuptools_scm",
-    "wheel",
-    # ---- JAX ----
-    "jax",
-    "jaxlib",
-    "jax_rocm7_plugin",
-    "jax_rocm7_pjrt",
-]}
+PACKAGE_ALLOW_LIST = {
+    x.lower()
+    for x in [
+        # ---- ROCm ----
+        "rocm",
+        "rocm_bootstrap",
+        "rocm_sdk",
+        "rocm_sdk_core",
+        "rocm_sdk_devel",
+        "rocm_profiler",
+        "rocm_sdk_libraries",
+        # ---- triton ----
+        "triton",
+        "pytorch_triton_rocm",
+        # ---- triton additional packages ----
+        "Arpeggio",
+        "caliper_reader",
+        "contourpy",
+        "cycler",
+        "dill",
+        "fonttools",
+        "kiwisolver",
+        "llnl-hatchet",
+        "matplotlib",
+        "pandas",
+        "pydot",
+        "pyparsing",
+        "pytz",
+        "textx",
+        "tzdata",
+        "importlib_metadata",
+        "importlib_resources",
+        "zipp",
+        # ----
+        "Pillow",
+        "apex",
+        "certifi",
+        "charset_normalizer",
+        "cmake",
+        "colorama",
+        "fbgemm_gpu",
+        "fbgemm_gpu_genai",
+        "filelock",
+        "fsspec",
+        "idna",
+        "iopath",
+        "intel_openmp",
+        "Jinja2",
+        "lit",
+        "lightning_utilities",
+        "MarkupSafe",
+        "mpmath",
+        "mkl",
+        "mypy_extensions",
+        "nestedtensor",
+        "networkx",
+        "numpy",
+        "packaging",
+        "portalocker",
+        "pyre_extensions",
+        "requests",
+        "sympy",
+        "tbb",
+        "torch",
+        "torcharrow",
+        "torchaudio",
+        "torchcodec",
+        "torchcsprng",
+        "torchdata",
+        "torchdistx",
+        "torchmetrics",
+        "torchrec",
+        "torchtext",
+        "torchtune",
+        "torchvision",
+        "torchvision_extra_decoders",
+        "triton",
+        "tqdm",
+        "typing_extensions",
+        "typing_inspect",
+        "urllib3",
+        "xformers",
+        "executorch",
+        "setuptools",
+        "setuptools_scm",
+        "wheel",
+        # ---- JAX ----
+        "jax",
+        "jaxlib",
+        "jax_rocm7_plugin",
+        "jax_rocm7_pjrt",
+    ]
+}
 
-S3IndexType = TypeVar('S3IndexType', bound='S3Index')
+S3IndexType = TypeVar("S3IndexType", bound="S3Index")
 
 
 @dataclasses.dataclass(frozen=False)
@@ -263,14 +305,14 @@ class S3Index:
         # sorting, sorts in reverse to put the most recent versions first
         all_sorted_packages = sorted(
             {self.normalize_package_version(obj) for obj in self.objects},
-            key=lambda name_ver: safe_parse_version(name_ver.split('-', 1)[-1]),
+            key=lambda name_ver: safe_parse_version(name_ver.split("-", 1)[-1]),
             reverse=True,
         )
         packages: Dict[str, int] = defaultdict(int)
         to_hide: Set[str] = set()
         for obj in all_sorted_packages:
             full_package_name = path.basename(obj)
-            package_name = full_package_name.split('-')[0]
+            package_name = full_package_name.split("-")[0]
             pkg = package_name.lower()
             BLACKLISTED_PACKAGES = {
                 "rocm_sdk_libraries_dev",
@@ -294,10 +336,15 @@ class S3Index:
                 print(f"[FILTERED OUT] {package_name}")
                 to_hide.add(obj)
                 continue
-        return list(set(self.objects).difference({
-            obj for obj in self.objects
-            if self.normalize_package_version(obj) in to_hide
-        }))
+        return list(
+            set(self.objects).difference(
+                {
+                    obj
+                    for obj in self.objects
+                    if self.normalize_package_version(obj) in to_hide
+                }
+            )
+        )
 
     def is_obj_at_root(self, obj: S3Object) -> bool:
         return path.dirname(obj.key) == self.prefix
@@ -309,57 +356,59 @@ class S3Index:
         return subdir.rstrip("/")
 
     def gen_file_list(
-        self,
-        subdir: Optional[str] = None,
-        package_name: Optional[str] = None
+        self, subdir: Optional[str] = None, package_name: Optional[str] = None
     ) -> Iterable[S3Object]:
         objects = self.objects
-        subdir = self._resolve_subdir(subdir) + '/'
+        subdir = self._resolve_subdir(subdir) + "/"
         for obj in objects:
-            if package_name is not None and self.obj_to_package_name(obj) != package_name:
+            if (
+                package_name is not None
+                and self.obj_to_package_name(obj) != package_name
+            ):
                 continue
             if self.is_obj_at_root(obj) or obj.key.startswith(subdir):
                 yield obj
 
     def get_package_names(self, subdir: Optional[str] = None) -> List[str]:
-        return sorted({self.obj_to_package_name(obj) for obj in self.gen_file_list(subdir)})
+        return sorted(
+            {self.obj_to_package_name(obj) for obj in self.gen_file_list(subdir)}
+        )
 
     def normalize_package_version(self: S3IndexType, obj: S3Object) -> str:
         # removes the GPU specifier from the package name as well as
         # unnecessary things like the file extension, architecture name, etc.
-        return sub(
-            r"%2B.*",
-            "",
-            "-".join(path.basename(obj.key).split("-")[:2])
-        )
+        return sub(r"%2B.*", "", "-".join(path.basename(obj.key).split("-")[:2]))
 
     def obj_to_package_name(self, obj: S3Object) -> str:
-        return path.basename(obj.key).split('-', 1)[0].lower()
+        return path.basename(obj.key).split("-", 1)[0].lower()
 
-    def to_simple_package_html(
-        self,
-        subdir: Optional[str],
-        package_name: str
-    ) -> str:
-        """Generates a string that can be used as the package simple HTML index
-        """
+    def obj_to_artifact_href(self, obj: S3Object) -> str:
+        stripped_key = obj.key.split("/")[-1]
+        return f"../{stripped_key}"
+
+    def to_simple_package_html(self, subdir: Optional[str], package_name: str) -> str:
+        """Generates a string that can be used as the package simple HTML index"""
         out: List[str] = []
         # Adding html header
-        out.append('<!DOCTYPE html>')
-        out.append('<html>')
-        out.append('  <body>')
-        out.append('    <h1>Links for {}</h1>'.format(package_name.lower().replace("_", "-")))
+        out.append("<!DOCTYPE html>")
+        out.append("<html>")
+        out.append("  <body>")
+        out.append(
+            "    <h1>Links for {}</h1>".format(package_name.lower().replace("_", "-"))
+        )
         for obj in sorted(self.gen_file_list(subdir, package_name)):
             # Do not include checksum for nightly packages, see
             # https://github.com/pytorch/test-infra/pull/6307
-            maybe_fragment = f"#sha256={obj.checksum}" if obj.checksum and not obj.orig_key.startswith("whl/nightly") else ""
+            maybe_fragment = (
+                f"#sha256={obj.checksum}"
+                if obj.checksum and not obj.orig_key.startswith("whl/nightly")
+                else ""
+            )
             attributes = ""
             if obj.pep658:
                 pep658_sha = f"sha256={obj.pep658}"
                 # pep714 renames the attribute to data-core-metadata
-                attributes = (
-                    f' data-dist-info-metadata="{pep658_sha}" data-core-metadata="{pep658_sha}"'
-                )
+                attributes = f' data-dist-info-metadata="{pep658_sha}" data-core-metadata="{pep658_sha}"'
             # Mark networkx versions with Python requirements (pytorch/pytorch#152191)
             # networkx 3.4.2 for Python 3.10, 3.5+ for Python 3.11+
             if obj.key.endswith("networkx-3.4.2-py3-none-any.whl"):
@@ -367,35 +416,34 @@ class S3Index:
             elif "networkx-" in obj.key and obj.key.endswith("-py3-none-any.whl"):
                 attributes += ' data-requires-python="&gt;=3.11"'
 
-            stripped_key = obj.key.split("/")[-1]
-
             out.append(
-                f'    <a href="../{stripped_key}{maybe_fragment}"{attributes}>{path.basename(obj.key).replace("%2B","+")}</a><br/>'
+                f'    <a href="{self.obj_to_artifact_href(obj)}{maybe_fragment}"{attributes}>{path.basename(obj.key).replace("%2B","+")}</a><br/>'
             )
         # Adding html footer
-        out.append('  </body>')
-        out.append('</html>')
-        out.append(f'<!--TIMESTAMP {int(time.time())}-->')
-        return '\n'.join(out)
+        out.append("  </body>")
+        out.append("</html>")
+        out.append(f"<!--TIMESTAMP {int(time.time())}-->")
+        return "\n".join(out)
 
     def to_simple_packages_html(
         self,
         subdir: Optional[str],
     ) -> str:
-        """Generates a string that can be used as the simple HTML index
-        """
+        """Generates a string that can be used as the simple HTML index"""
         out: List[str] = []
         # Adding html header
-        out.append('<!DOCTYPE html>')
-        out.append('<html>')
-        out.append('  <body>')
+        out.append("<!DOCTYPE html>")
+        out.append("<html>")
+        out.append("  <body>")
         for pkg_name in sorted(self.get_package_names(subdir)):
-            out.append(f'    <a href="{pkg_name.lower().replace("_","-")}/">{pkg_name.replace("_","-")}</a><br/>')
+            out.append(
+                f'    <a href="{pkg_name.lower().replace("_","-")}/">{pkg_name.replace("_","-")}</a><br/>'
+            )
         # Adding html footer
-        out.append('  </body>')
-        out.append('</html>')
-        out.append(f'<!--TIMESTAMP {int(time.time())}-->')
-        return '\n'.join(out)
+        out.append("  </body>")
+        out.append("</html>")
+        out.append(f"<!--TIMESTAMP {int(time.time())}-->")
+        return "\n".join(out)
 
     def upload_pep503_htmls(self, update_root_index: bool = True) -> None:
         for subdir in self.subdirs:
@@ -403,26 +451,26 @@ class S3Index:
                 index_html = self.to_simple_packages_html(subdir=subdir)
                 for bucket in INDEX_BUCKETS:
                     print(f"INFO Uploading {subdir}/index.html to {bucket.name}")
-                    bucket.Object(
-                        key=f"{subdir}/index.html"
-                    ).put(
+                    bucket.Object(key=f"{subdir}/index.html").put(
                         # ACL='public-read',
-                        CacheControl='no-cache,no-store,must-revalidate',
-                        ContentType='text/html',
-                        Body=index_html
+                        CacheControl="no-cache,no-store,must-revalidate",
+                        ContentType="text/html",
+                        Body=index_html,
                     )
             for pkg_name in self.get_package_names(subdir=subdir):
                 compat_pkg_name = pkg_name.lower().replace("_", "-")
-                index_html = self.to_simple_package_html(subdir=subdir, package_name=pkg_name)
+                index_html = self.to_simple_package_html(
+                    subdir=subdir, package_name=pkg_name
+                )
                 for bucket in INDEX_BUCKETS:
-                    print(f"INFO Uploading {subdir}/{compat_pkg_name}/index.html to {bucket.name}")
-                    bucket.Object(
-                        key=f"{subdir}/{compat_pkg_name}/index.html"
-                    ).put(
+                    print(
+                        f"INFO Uploading {subdir}/{compat_pkg_name}/index.html to {bucket.name}"
+                    )
+                    bucket.Object(key=f"{subdir}/{compat_pkg_name}/index.html").put(
                         # ACL='public-read',
-                        CacheControl='no-cache,no-store,must-revalidate',
-                        ContentType='text/html',
-                        Body=index_html
+                        CacheControl="no-cache,no-store,must-revalidate",
+                        ContentType="text/html",
+                        Body=index_html,
                     )
 
     def save_pep503_htmls(self, update_root_index: bool = True) -> None:
@@ -430,12 +478,22 @@ class S3Index:
             if update_root_index:
                 print(f"INFO Saving {subdir}/index.html")
                 makedirs(subdir, exist_ok=True)
-                with open(path.join(subdir, "index.html"), mode="w", encoding="utf-8") as f:
+                with open(
+                    path.join(subdir, "index.html"), mode="w", encoding="utf-8"
+                ) as f:
                     f.write(self.to_simple_packages_html(subdir=subdir))
             for pkg_name in self.get_package_names(subdir=subdir):
                 makedirs(path.join(subdir, pkg_name), exist_ok=True)
-                with open(path.join(subdir, pkg_name, "index.html"), mode="w", encoding="utf-8") as f:
-                    f.write(self.to_simple_package_html(subdir=subdir, package_name=pkg_name))
+                with open(
+                    path.join(subdir, pkg_name, "index.html"),
+                    mode="w",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(
+                        self.to_simple_package_html(
+                            subdir=subdir, package_name=pkg_name
+                        )
+                    )
 
     def compute_sha256(self) -> None:
         for obj in self.objects:
@@ -443,23 +501,30 @@ class S3Index:
                 continue
             print(f"Updating {obj.orig_key} of size {obj.size} with SHA256 checksum")
             s3_obj = BUCKET.Object(key=obj.orig_key)
-            s3_obj.copy_from(CopySource={"Bucket": BUCKET.name, "Key": obj.orig_key},
-                             Metadata=s3_obj.metadata, MetadataDirective="REPLACE",
-                             ACL="public-read",
-                             ChecksumAlgorithm="SHA256")
+            s3_obj.copy_from(
+                CopySource={"Bucket": BUCKET.name, "Key": obj.orig_key},
+                Metadata=s3_obj.metadata,
+                MetadataDirective="REPLACE",
+                ACL="public-read",
+                ChecksumAlgorithm="SHA256",
+            )
 
     @classmethod
-    def fetch_object_names(cls: Type[S3IndexType], prefix: str, package_name: Optional[str] = None) -> List[str]:
+    def fetch_object_names(
+        cls: Type[S3IndexType], prefix: str, package_name: Optional[str] = None
+    ) -> List[str]:
         obj_names = []
-        paginator = CLIENT.get_paginator('list_objects_v2')
+        paginator = CLIENT.get_paginator("list_objects_v2")
         list_prefix = _make_list_prefix(prefix, package_name)
         page_iterator = paginator.paginate(Bucket=BUCKET_NAME, Prefix=list_prefix)
         for page in page_iterator:
-            for obj in page.get('Contents', []):
-                is_acceptable = (path.dirname(obj['Key']) == prefix) and obj['Key'].endswith(ACCEPTED_FILE_EXTENSIONS)
+            for obj in page.get("Contents", []):
+                is_acceptable = (path.dirname(obj["Key"]) == prefix) and obj[
+                    "Key"
+                ].endswith(ACCEPTED_FILE_EXTENSIONS)
                 if not is_acceptable:
                     continue
-                obj_names.append(obj['Key'])
+                obj_names.append(obj["Key"])
         return obj_names
 
     def fetch_metadata(self: S3IndexType) -> None:
@@ -480,14 +545,18 @@ class S3Index:
                 raw = response.get("ChecksumSHA256")
                 if raw and match(regex_multipart_upload, raw):
                     # Possibly part of a multipart upload, making the checksum incorrect
-                    print(f"WARNING: {self.objects[idx].orig_key} has bad checksum: {raw}")
+                    print(
+                        f"WARNING: {self.objects[idx].orig_key} has bad checksum: {raw}"
+                    )
                     raw = None
                 sha256 = raw and base64.b64decode(raw).hex()
                 # For older files, rely on checksum-sha256 metadata that can be added to the file later
                 if sha256 is None:
                     sha256 = response.get("Metadata", {}).get("checksum-sha256")
                 if sha256 is None:
-                    sha256 = response.get("Metadata", {}).get("x-amz-meta-checksum-sha256")
+                    sha256 = response.get("Metadata", {}).get(
+                        "x-amz-meta-checksum-sha256"
+                    )
                 self.objects[idx].checksum = sha256
                 if size := response.get("ContentLength"):
                     self.objects[idx].size = int(size)
@@ -519,25 +588,179 @@ class S3Index:
                     self.objects[idx].pep658 = response
 
     @classmethod
-    def from_S3(cls: Type[S3IndexType], prefix: str, with_metadata: bool = True, package_name: Optional[str] = None) -> S3IndexType:
+    def from_S3(
+        cls: Type[S3IndexType],
+        prefix: str,
+        with_metadata: bool = True,
+        package_name: Optional[str] = None,
+    ) -> S3IndexType:
         prefix = prefix.rstrip("/")
         obj_names = cls.fetch_object_names(prefix, package_name=package_name)
 
         def sanitize_key(key: str) -> str:
             return key.replace("+", "%2B")
 
-        rc = cls([S3Object(key=sanitize_key(key),
-                           orig_key=key,
-                           checksum=None,
-                           size=None,
-                           pep658=None) for key in obj_names], prefix)
+        rc = cls(
+            [
+                S3Object(
+                    key=sanitize_key(key),
+                    orig_key=key,
+                    checksum=None,
+                    size=None,
+                    pep658=None,
+                )
+                for key in obj_names
+            ],
+            prefix,
+        )
         rc.objects = rc.nightly_packages_to_show()
         if with_metadata:
             rc.fetch_metadata()
             rc.fetch_pep658()
         return rc
 
-def update_pep503_index(prefix: str, package_name: Optional[str] = None, update_root_index: bool = True, compute_sha256: bool = False, upload: bool = True):
+
+class StructuredS3Index(S3Index):
+    """PEP 503 index generator for product-local package directories."""
+
+    def __init__(self: S3IndexType, objects: List[S3Object], prefix: str) -> None:
+        self.objects = objects
+        self.prefix = prefix.rstrip("/")
+        self.html_name = "index.html"
+        self.subdirs = {self.prefix}
+
+    def _object_package_name(self, obj: S3Object) -> Optional[str]:
+        rel_key = obj.key.removeprefix(f"{self.prefix}/")
+        parts = rel_key.split("/")
+        if len(parts) != 2:
+            return None
+        package_dir, filename = parts
+        if not is_accepted_distribution_key(filename):
+            return None
+        normalized_package_dir = pep503_normalize_package_name(package_dir)
+        if package_dir != normalized_package_dir:
+            raise ValueError(
+                f"package directory '{package_dir}' is not normalized; "
+                f"expected '{normalized_package_dir}'"
+            )
+        filename_package = package_name_from_distribution_filename(filename)
+        if package_dir != filename_package:
+            raise ValueError(
+                f"package directory '{package_dir}' does not match "
+                f"distribution filename package '{filename_package}' for {obj.orig_key}"
+            )
+        return package_dir
+
+    def is_obj_at_root(self, obj: S3Object) -> bool:
+        return False
+
+    def gen_file_list(
+        self, subdir: Optional[str] = None, package_name: Optional[str] = None
+    ) -> Iterable[S3Object]:
+        for obj in self.objects:
+            if not obj.key.startswith(f"{self.prefix}/"):
+                continue
+            obj_package_name = self._object_package_name(obj)
+            if obj_package_name is None:
+                continue
+            if package_name is not None and obj_package_name != package_name:
+                continue
+            yield obj
+
+    def get_package_names(self, subdir: Optional[str] = None) -> List[str]:
+        return sorted(
+            {
+                package_name
+                for obj in self.objects
+                if (package_name := self._object_package_name(obj)) is not None
+            }
+        )
+
+    def obj_to_package_name(self, obj: S3Object) -> str:
+        package_name = self._object_package_name(obj)
+        if package_name is None:
+            raise ValueError(f"object is not under a package directory: {obj.orig_key}")
+        return package_name
+
+    def obj_to_artifact_href(self, obj: S3Object) -> str:
+        return path.basename(obj.key)
+
+    @classmethod
+    def fetch_object_names(
+        cls: Type[S3IndexType], prefix: str, package_name: Optional[str] = None
+    ) -> List[str]:
+        prefix = prefix.rstrip("/")
+        obj_names = []
+        paginator = CLIENT.get_paginator("list_objects_v2")
+        list_prefix = f"{prefix}/{package_name}/" if package_name else f"{prefix}/"
+        page_iterator = paginator.paginate(Bucket=BUCKET_NAME, Prefix=list_prefix)
+        for page in page_iterator:
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if not key.startswith(f"{prefix}/") or not is_accepted_distribution_key(
+                    key
+                ):
+                    continue
+                rel_key = key[len(prefix) + 1 :]
+                parts = rel_key.split("/")
+                if len(parts) != 2:
+                    continue
+                package_dir, filename = parts
+                normalized_package_dir = pep503_normalize_package_name(package_dir)
+                if package_dir != normalized_package_dir:
+                    raise ValueError(
+                        f"package directory '{package_dir}' is not normalized; "
+                        f"expected '{normalized_package_dir}'"
+                    )
+                filename_package = package_name_from_distribution_filename(filename)
+                if package_dir != filename_package:
+                    raise ValueError(
+                        f"package directory '{package_dir}' does not match "
+                        f"distribution filename package '{filename_package}' for {key}"
+                    )
+                obj_names.append(key)
+        return obj_names
+
+    @classmethod
+    def from_S3(
+        cls: Type[S3IndexType],
+        prefix: str,
+        with_metadata: bool = True,
+        package_name: Optional[str] = None,
+    ) -> S3IndexType:
+        prefix = prefix.rstrip("/")
+        obj_names = cls.fetch_object_names(prefix, package_name=package_name)
+
+        def sanitize_key(key: str) -> str:
+            return key.replace("+", "%2B")
+
+        rc = cls(
+            [
+                S3Object(
+                    key=sanitize_key(key),
+                    orig_key=key,
+                    checksum=None,
+                    size=None,
+                    pep658=None,
+                )
+                for key in obj_names
+            ],
+            prefix,
+        )
+        if with_metadata:
+            rc.fetch_metadata()
+            rc.fetch_pep658()
+        return rc
+
+
+def update_pep503_index(
+    prefix: str,
+    package_name: Optional[str] = None,
+    update_root_index: bool = True,
+    compute_sha256: bool = False,
+    upload: bool = True,
+    structured_layout: bool = False,
+):
     """
     Regenerates the PEP 503 simple index for a given S3 prefix.
     Fetches valid artifacts, applies allow-list filtering, optionally updates
@@ -557,6 +780,8 @@ def update_pep503_index(prefix: str, package_name: Optional[str] = None, update_
             the root index must be built from a full listing, not a
             package-scoped one — passing both would clobber the root index
             with only that package's entries.
+        structured_layout: If True, treat prefix as a product-local root with
+            package directories at "{prefix}/{normalized-package}/".
 
     IMPORTANT:
         `initialize_bucket()` must be called prior to invoking this function.
@@ -578,14 +803,20 @@ def update_pep503_index(prefix: str, package_name: Optional[str] = None, update_
             "package-scoped one. Use a separate full-sweep call to update the root index."
         )
 
-    print(f"Processing prefix: {prefix}" + (f", package: {package_name}" if package_name else ""))
+    print(
+        f"Processing prefix: {prefix}"
+        + (f", package: {package_name}" if package_name else "")
+    )
 
     # Record start time to measure S3 fetch duration
     stime = time.time()
 
     # Bucket must already be initialized via initialize_bucket().
     # S3Index.from_S3() relies on module-level BUCKET_NAME / BUCKET.
-    idx = S3Index.from_S3(prefix=prefix, with_metadata=True, package_name=package_name)
+    index_class = StructuredS3Index if structured_layout else S3Index
+    idx = index_class.from_S3(
+        prefix=prefix, with_metadata=True, package_name=package_name
+    )
 
     # Record end time and compute elapsed duration
     etime = time.time()
@@ -600,13 +831,11 @@ def update_pep503_index(prefix: str, package_name: Optional[str] = None, update_
 
     return len(idx.objects)
 
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser("Manage S3 HTML indices for PyTorch")
     parser.add_argument(
-        "prefix",
-        nargs="?",
-        default=None,
-        help="Prefix to update (overrides defaults)"
+        "prefix", nargs="?", default=None, help="Prefix to update (overrides defaults)"
     )
     parser.add_argument("--bucket", type=str, help="S3 bucket name")
     parser.add_argument(
@@ -615,7 +844,7 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "Automatically detect architecture prefixes under the given base "
             "path using S3 CommonPrefixes. Disabled by default."
-    )
+        ),
     )
     parser.add_argument(
         "--starting-from",
@@ -623,11 +852,20 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "Base prefix for auto-detection (e.g. v2/, v2-staging/, v3/whl/). "
             "Required when using --auto-detect-prefixes."
-    )
+        ),
     )
     parser.add_argument("--do-not-upload", action="store_true")
     parser.add_argument("--compute-sha256", action="store_true")
+    parser.add_argument(
+        "--structured-layout",
+        action="store_true",
+        help=(
+            "Treat each prefix as a product-local root containing package "
+            "directories, e.g. rocm/pytorch/whl/torch/*.whl."
+        ),
+    )
     return parser
+
 
 def resolve_prefixes(args) -> List[str]:
     """
@@ -650,12 +888,15 @@ def resolve_prefixes(args) -> List[str]:
     if args.auto_detect_prefixes:
         base = args.starting_from
         if not base:
-            raise RuntimeError("--starting-from must be provided when using --auto-detect-prefixes")
+            raise RuntimeError(
+                "--starting-from must be provided when using --auto-detect-prefixes"
+            )
 
         return detect_prefixes_from_bucket(base)
 
     # Default static list
     return PREFIXES
+
 
 def detect_prefixes_from_bucket(base_prefix: str) -> List[str]:
     """
@@ -669,9 +910,7 @@ def detect_prefixes_from_bucket(base_prefix: str) -> List[str]:
 
     paginator = CLIENT.get_paginator("list_objects_v2")
     page_iterator = paginator.paginate(
-        Bucket=BUCKET_NAME,
-        Prefix=base_prefix,
-        Delimiter="/"
+        Bucket=BUCKET_NAME, Prefix=base_prefix, Delimiter="/"
     )
 
     for page in page_iterator:
@@ -682,6 +921,7 @@ def detect_prefixes_from_bucket(base_prefix: str) -> List[str]:
     print(f"INFO: Detected prefixes: {detected}")
 
     return detected
+
 
 def main() -> None:
     parser = create_parser()
@@ -700,8 +940,10 @@ def main() -> None:
         update_pep503_index(
             prefix=prefix,
             compute_sha256=args.compute_sha256,
-            upload=not args.do_not_upload
+            upload=not args.do_not_upload,
+            structured_layout=args.structured_layout,
         )
+
 
 if __name__ == "__main__":
     main()
