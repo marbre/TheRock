@@ -109,11 +109,18 @@ on:
         type: string
         required: true
       rocm_package_find_links_url:
-        description: URL for pip --find-links to install ROCm packages (flat page; use this OR rocm_package_index_url)
+        description: >-
+          URL for pip --find-links to install ROCm packages (flat page). Set
+          either this or rocm_package_index_url to override the ROCm package
+          source; leave both blank to use the nightly multi-arch index.
         type: string
         default: ""
       rocm_package_index_url:
-        description: URL for pip --index-url to install ROCm packages (PEP 503 index, e.g. repo.amd.com; use this OR rocm_package_find_links_url)
+        description: >-
+          URL for pip --index-url to install ROCm packages (PEP 503 index).
+          Set either this or rocm_package_find_links_url to override the ROCm
+          package source; leave both blank to use the nightly multi-arch index
+          (https://rocm.nightlies.amd.com/whl-multi-arch).
         type: string
         default: ""
       release_type:
@@ -123,11 +130,17 @@ on:
           - dev
         default: dev
       repository:
-        description: "Repository to checkout. Defaults to github.repository."
+        description: >-
+          TheRock repository to check out the build scripts/workflow from (NOT
+          the PyTorch source). Leave blank to use this repository. To build a
+          different PyTorch branch, set pytorch_git_ref instead.
         type: string
         default: ""
       ref:
-        description: "Branch, tag, or SHA to checkout. Defaults to the triggering ref."
+        description: >-
+          Branch, tag, or SHA of TheRock (the repository above) to check out.
+          Leave blank to use the triggering ref. This does NOT select the
+          PyTorch source ref; use pytorch_git_ref for that.
         type: string
         default: ""
       cache_type:
@@ -276,6 +289,16 @@ jobs:
           echo "targets=${targets}" >> "$GITHUB_OUTPUT"
 
       - name: Build PyTorch wheels
+        # Default to the nightly multi-arch ROCm index when neither source is
+        # provided so a bare manual dispatch works; setting either input
+        # overrides it. The default is applied here rather than on the input
+        # because GitHub reverts an emptied input back to its declared default,
+        # which would make the two inputs impossible to use exclusively.
+        env:
+          # Use the index if given; else the find-links page; else default to
+          # the nightly multi-arch index (both empty is the bare-dispatch case).
+          ROCM_INDEX_URL: ${{ inputs.rocm_package_index_url || (inputs.rocm_package_find_links_url == '' && 'https://rocm.nightlies.amd.com/whl-multi-arch' || '') }}
+          ROCM_FIND_LINKS: ${{ inputs.rocm_package_find_links_url }}
         run: |
           cache_flag=""
           if [ "${{ inputs.cache_type }}" = "sccache" ]; then
@@ -290,8 +313,8 @@ jobs:
           ./external-builds/pytorch/build_prod_wheels.py \
             build \
             --install-rocm \
-            --index-url="${{ inputs.rocm_package_index_url }}" \
-            --find-links="${{ inputs.rocm_package_find_links_url }}" \
+            --index-url="${ROCM_INDEX_URL}" \
+            --find-links="${ROCM_FIND_LINKS}" \
             --clean \
             --output-dir ${{ env.PACKAGE_DIST_DIR }} \
             ${cache_flag} \
