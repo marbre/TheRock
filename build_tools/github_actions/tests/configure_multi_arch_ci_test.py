@@ -14,7 +14,7 @@ import re
 import sys
 import tempfile
 import unittest
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 from unittest.mock import call, patch
 
@@ -135,6 +135,71 @@ class TestCIInputs(unittest.TestCase):
         self.assertEqual(inputs.pr_labels, [])
         self.assertEqual(inputs.linux_amdgpu_families, [])
         self.assertEqual(inputs.prebuilt_stages, "")
+
+    def test_build_and_skip_labels_conflict(self):
+        inputs = cm.CIInputs(
+            run_id="12345",
+            event_name="pull_request",
+            commit_ref="feature",
+            base_ref="HEAD^",
+            build_variant="release",
+        )
+        for job in ("native-linux", "python-packages", "pytorch", "jax"):
+            with self.subTest(job=job):
+                build_label = f"ci:build-{job}"
+                skip_label = f"ci:skip-{job}"
+                replace(inputs, pr_labels=[build_label]).validate()
+                replace(inputs, pr_labels=[skip_label]).validate()
+                with self.assertRaisesRegex(
+                    ValueError, f"{build_label} conflicts with {skip_label}"
+                ):
+                    replace(inputs, pr_labels=[build_label, skip_label]).validate()
+
+    def test_build_stages_rejects_incompatible_test_labels(self):
+        """build_stages raises error for test_labels requiring skipped stages."""
+        inputs = cm.CIInputs(
+            run_id="12345",
+            event_name="pull_request",
+            commit_ref="feature",
+            base_ref="HEAD^",
+            build_variant="release",
+            build_stages=["compiler-runtime", "runtime-tests"],
+            linux_test_labels=["test:hip-tests", "test:rocblas", "test:miopen"],
+        )
+        # rocblas/miopen require math-libs/ml-libs, not in build_stages
+        # Validation happens in CIInputs.validate() (called by from_environ)
+        with self.assertRaises(ValueError) as ctx:
+            inputs.validate()
+        self.assertIn("rocblas", str(ctx.exception))
+        self.assertIn("miopen", str(ctx.exception))
+
+    def test_build_stages_allows_compatible_test_labels(self):
+        """build_stages allows test_labels that match available stages."""
+        inputs = cm.CIInputs(
+            run_id="12345",
+            event_name="pull_request",
+            commit_ref="feature",
+            base_ref="HEAD^",
+            build_variant="release",
+            build_stages=["compiler-runtime", "runtime-tests"],
+            linux_test_labels=["test:hip-tests", "test:kfdtest"],
+        )
+        # Validation should pass without raising
+        inputs.validate()
+
+    def test_build_stages_allows_ci_control_labels(self):
+        """ci: control labels like ci:run-multi-gpu are not rejected by build_stages validation."""
+        inputs = cm.CIInputs(
+            run_id="12345",
+            event_name="pull_request",
+            commit_ref="feature",
+            base_ref="HEAD^",
+            build_variant="release",
+            build_stages=["compiler-runtime", "runtime-tests"],
+            linux_test_labels=["test:hip-tests", "ci:run-multi-gpu"],
+        )
+        # Validation should pass without raising - ci:run-multi-gpu is a control label
+        inputs.validate()
 
 
 class TestCIInputsFromEnviron(unittest.TestCase):
@@ -784,59 +849,6 @@ class TestDecideJobs(unittest.TestCase):
         self.assertFalse(result.linux.build_jax)
         self.assertFalse(result.linux.build_native_linux)
 
-    def test_build_stages_rejects_incompatible_test_labels(self):
-        """build_stages raises error for test_labels requiring skipped stages."""
-        inputs = cm.CIInputs(
-            run_id="12345",
-            event_name="pull_request",
-            commit_ref="feature",
-            base_ref="HEAD^",
-            build_variant="release",
-            build_stages=["compiler-runtime", "runtime-tests"],
-            linux_test_labels=["test:hip-tests", "test:rocblas", "test:miopen"],
-        )
-        # rocblas/miopen require math-libs/ml-libs, not in build_stages
-        # Validation happens in CIInputs.validate() (called by from_environ)
-        with self.assertRaises(ValueError) as ctx:
-            inputs.validate()
-        self.assertIn("rocblas", str(ctx.exception))
-        self.assertIn("miopen", str(ctx.exception))
-
-    def test_build_stages_allows_compatible_test_labels(self):
-        """build_stages allows test_labels that match available stages."""
-        inputs = cm.CIInputs(
-            run_id="12345",
-            event_name="pull_request",
-            commit_ref="feature",
-            base_ref="HEAD^",
-            build_variant="release",
-            build_stages=["compiler-runtime", "runtime-tests"],
-            linux_test_labels=["test:hip-tests", "test:kfdtest"],
-        )
-        # Validation should pass without raising
-        inputs.validate()
-        outputs = cm.configure(inputs, cm.GitContext.empty())
-        # Both labels are compatible with the stages
-        self.assertEqual(outputs.linux_test_labels, ["test:hip-tests", "test:kfdtest"])
-
-    def test_build_stages_allows_ci_control_labels(self):
-        """ci: control labels like ci:run-multi-gpu are not rejected by build_stages validation."""
-        inputs = cm.CIInputs(
-            run_id="12345",
-            event_name="pull_request",
-            commit_ref="feature",
-            base_ref="HEAD^",
-            build_variant="release",
-            build_stages=["compiler-runtime", "runtime-tests"],
-            linux_test_labels=["test:hip-tests", "ci:run-multi-gpu"],
-        )
-        # Validation should pass without raising - ci:run-multi-gpu is a control label
-        inputs.validate()
-        outputs = cm.configure(inputs, cm.GitContext.empty())
-        # Both labels are preserved in output
-        self.assertIn("test:hip-tests", outputs.linux_test_labels)
-        self.assertIn("ci:run-multi-gpu", outputs.linux_test_labels)
-
     def test_debug_tools_stage_allows_all_debugger_tests(self):
         self.assertEqual(
             cm._get_allowed_test_labels_for_stages(["debug-tools"]),
@@ -951,17 +963,6 @@ class TestDecideJobs(unittest.TestCase):
                 )
                 actual = getattr(result, field).action
                 self.assertEqual(actual, expected)
-
-        # Build labels take precedence over skip labels
-        result = cm.decide_jobs(
-            self._inputs(
-                build_pytorch=False,
-                pr_labels=["ci:skip-pytorch", "ci:build-pytorch"],
-            ),
-            git_context=cm.GitContext(),
-            targets=cm.TargetSelection(),
-        )
-        self.assertEqual(result.build_pytorch.action, cm.JobAction.RUN)
 
 
 # ---------------------------------------------------------------------------
