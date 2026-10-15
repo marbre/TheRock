@@ -184,6 +184,37 @@ python build_tools/packaging/promote_packages.py \
 `a<YYYYMMDD>` (e.g. `a20260501`). The downstream RC -> release flow above is
 unchanged.
 
+### Promoting dev builds
+
+`dev` builds record the source commit in torch, torchaudio and torchvision
+local versions (`2.12.0+git1a2b3c4d.rocm10.0.0rc4`). When ROCm itself is a dev
+build, its version is `10.2.0.dev0+<sha>` and torch-family wheels built on it
+carry `devrocm10.2.0.dev0.<sha>`; builds on a nightly ROCm carry
+`rocm10.2.0a<date>`. `--src-version-type=dev` strips the `git<sha>.` prefix, the
+dev and nightly ROCm markers, an alpha on the base version (`1.2.3a0+...` ->
+`1.2.3+...`) and any rc, in file names and inside
+`METADATA`, `version.py`, `_rocm_init.py` and `_dist_info.py`, so everything goes
+straight to the final version. Triton keeps its `git<sha>` (its own build adds
+it to rc and nightly builds too), so torch's pin on it still resolves.
+
+| Dev version                                         | Release version                       |
+| --------------------------------------------------- | ------------------------------------- |
+| `torch-2.12.0+git1a2b3c4d.rocm10.0.0rc4`            | `torch-2.12.0+rocm10.0.0`             |
+| `1.2.3a0+git1a2b3c4d.rocm10.0.0rc4`                 | `1.2.3+rocm10.0.0`                    |
+| `torch-2.12.0+git1a2b3c4d.rocm10.0.0`               | `torch-2.12.0+rocm10.0.0`             |
+| `torch-2.12.0+git1a2b3c4d.rocm10.2.0a20261006`      | `torch-2.12.0+rocm10.2.0`             |
+| `torch-2.12.0+git1a2b3c4d.devrocm10.2.0.dev0.<sha>` | `torch-2.12.0+rocm10.2.0`             |
+| `triton-3.8.0+git669b31ac.devrocm10.2.0.dev0.<sha>` | `triton-3.8.0+git669b31ac.rocm10.2.0` |
+| `apex-1.12.0+devrocm10.2.0.dev0.<sha>`              | `apex-1.12.0+rocm10.2.0`              |
+| `rocm_sdk_core-10.2.0.dev0+<sha>`                   | `rocm_sdk_core-10.2.0`                |
+
+```bash
+python build_tools/packaging/promote_packages.py \
+   --input-dir=./promotion/download/<arch> \
+   --src-version-type=dev \
+   --delete-old-on-success
+```
+
 ### Multi-arch packages: restricting which gfx targets to ship
 
 Multi-arch aggregator wheels (`rocm`, `torch`, `torchvision`, …) reference
